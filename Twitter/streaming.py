@@ -4,7 +4,7 @@ import logging
 import requests
 from authorization import OAuth2Bearer
 from abc import ABC, abstractmethod
-
+from kafka import KafkaProducer
 
 BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
 
@@ -18,18 +18,21 @@ class Stream(ABC):
     def endpoint(self):
         pass
 
-    def connect_to_endpoint(self, endpoint: str):
+    def connect_to_endpoint(self):
+        endpoint = self.endpoint
         response = requests.get(
             endpoint, auth=self.authentication, stream=True)
+
         if response.status_code != 200:
             raise Exception("Request returned an error: %s %s" %
                             (response.status_code, response.text))
-        else:
-            for response_line in response.iter_lines():
-                if response_line:
-                    json_response = json.loads(response_line)
-                    print(json.dumps(json_response, indent=4,
-                          sort_keys=True, ensure_ascii=False))
+
+        return response
+
+    def flush_tweets(self, response):
+        for response_line in response.iter_lines():
+            if response_line:
+                yield response_line
 
 
 class SampledStream(Stream):
@@ -55,14 +58,8 @@ class SampledStream(Stream):
         else:
             return endpoint
 
-    def connect_to_endpoint(self):
-        endpoint = self.endpoint
-        super().connect_to_endpoint(endpoint=endpoint)
-
 
 class FilteredStream(Stream):
-    def __init__(self):
-        super().__init__()
 
     def endpoint(self, rules=True) -> str:
         if rules:
@@ -122,17 +119,9 @@ class FilteredStream(Stream):
             return None
         self._rule_removal(rule_ids=rule_ids)
 
-    def connect_to_endpoint(self):
-        endpoint = self.endpoint(rules=False)
-        super().connect_to_endpoint(endpoint=endpoint)
-
 
 if __name__ == "__main__":
-
     # Sample stream download
     stream = SampledStream()
-    stream.connect_to_endpoint()
-
-    # Filter stream download
-    filter_stream = FilteredStream()
-    filter_stream.connect_to_endpoint()
+    response = stream.connect_to_endpoint()
+    print(response.status_code)
